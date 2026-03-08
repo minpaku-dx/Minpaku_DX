@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minpaku DX — Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── NAV ── */
+    nav {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    nav .brand { font-weight: 700; font-size: 1.1rem; letter-spacing: 0.5px; }
+    nav .brand span { color: #4cc9f0; }
+    nav .nav-right { display: flex; align-items: center; gap: 12px; }
+    #unread-badge {
+      background: #ef476f;
+      color: #fff;
+      border-radius: 99px;
+      padding: 2px 10px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    #refresh-btn {
+      background: transparent;
+      border: 1.5px solid #4cc9f0;
+      color: #4cc9f0;
+      border-radius: 6px;
+      padding: 5px 14px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: all 0.15s;
+    }
+    #refresh-btn:hover { background: #4cc9f0; color: #1a1a2e; }
+    #refresh-btn:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── MAIN ── */
+    main {
+      max-width: 920px;
+      margin: 32px auto;
+      padding: 0 16px;
+    }
+
+    /* ── STATE SCREENS ── */
+    #loading-screen, #empty-screen {
+      text-align: center;
+      padding: 80px 0;
+      color: #888;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid #e0e0e0;
+      border-top-color: #4cc9f0;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #empty-screen .icon { font-size: 3rem; margin-bottom: 12px; }
+
+    /* ── CARD ── */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      margin-bottom: 24px;
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+    .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+    .card.sent   { border-left: 4px solid #06d6a0; }
+    .card.skipped { border-left: 4px solid #aaa; opacity: 0.6; }
+
+    /* card header */
+    .card-header {
+      background: #f8f9fb;
+      border-bottom: 1px solid #eee;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .card-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .meta-chip {
+      background: #eef0f6;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 0.78rem;
+      color: #555;
+    }
+    .meta-chip.guest { background: #e8f4fd; color: #1a73e8; font-weight: 600; }
+    .meta-chip.time  { color: #999; }
+    .status-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 99px;
+      padding: 3px 12px;
+    }
+    .status-badge.pending  { background: #fff3cd; color: #856404; }
+    .status-badge.sent     { background: #d1fae5; color: #065f46; }
+    .status-badge.skipped  { background: #f0f0f0; color: #777; }
+    .status-badge.sending  { background: #dbeafe; color: #1e40af; }
+
+    /* card body */
+    .card-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+    @media (max-width: 640px) { .card-body { grid-template-columns: 1fr; } }
+
+    .panel { padding: 18px 20px; }
+    .panel-left  { border-right: 1px solid #f0f0f0; }
+    .panel-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #999;
+      margin-bottom: 8px;
+    }
+
+    /* thread */
+    .thread { max-height: 180px; overflow-y: auto; margin-bottom: 12px; }
+    .thread-msg {
+      padding: 6px 10px;
+      border-radius: 8px;
+      margin-bottom: 5px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .thread-msg.host  { background: #f0f0f0; color: #555; text-align: left; }
+    .thread-msg.guest { background: #dbeafe; color: #1e3a5f; text-align: right; }
+    .thread-sender { font-size: 0.68rem; font-weight: 600; margin-bottom: 2px; }
+
+    /* guest message highlight */
+    .guest-latest {
+      background: #fff8e1;
+      border-left: 3px solid #f4b942;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* AI draft */
+    .draft-textarea {
+      width: 100%;
+      min-height: 140px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.87rem;
+      line-height: 1.6;
+      resize: vertical;
+      font-family: inherit;
+      color: #1a1a2e;
+      transition: border-color 0.15s;
+    }
+    .draft-textarea:focus { outline: none; border-color: #4cc9f0; }
+    .draft-textarea:disabled { background: #fafafa; color: #999; }
+    .ai-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .ai-badge {
+      background: linear-gradient(135deg, #4cc9f0, #7209b7);
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      letter-spacing: 0.5px;
+    }
+
+    /* actions */
+    .card-actions {
+      padding: 12px 20px 16px;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      border-top: 1px solid #f0f0f0;
+    }
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 8px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn-send   { background: #06d6a0; color: #fff; }
+    .btn-send:hover:not(:disabled)   { background: #05b886; }
+    .btn-skip   { background: #f0f0f0; color: #555; }
+    .btn-skip:hover:not(:disabled)   { background: #e0e0e0; }
+    .btn-loading { background: #dbeafe; color: #1e40af; }
+
+    /* toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1a1a2e;
+      color: #fff;
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 0.88rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.25s;
+      z-index: 999;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.ok  { border-left: 4px solid #06d6a0; }
+    #toast.err { border-left: 4px solid #ef476f; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">Minpaku <span>DX</span></div>
+  <div class="nav-right">
+    <span id="unread-badge">...</span>
+    <button id="refresh-btn" onclick="loadMessages()">更新</button>
+  </div>
+</nav>
+
+<main>
+  <div id="loading-screen">
+    <div class="spinner"></div>
+    <p>メッセージを取得中...</p>
+  </div>
+  <div id="empty-screen" style="display:none">
+    <div class="icon">✅</div>
+    <p>未読のゲストメッセージはありません。</p>
+  </div>
+  <div id="cards-container"></div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  // ── STATE ───────────────────────────────────────────────────────────────────
+  let messages = [];     // [{id, bookingId, ...}, ...]
+  let skipped  = new Set();
+  let sent     = new Set();
+
+  // ── LOAD MESSAGES ───────────────────────────────────────────────────────────
+  async function loadMessages() {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true;
+    btn.textContent = '取得中...';
+    showScreen('loading');
+
+    try {
+      const res  = await fetch('/api/messages');
+      const data = await res.json();
+      if (data.error) { showToast('エラー: ' + data.error, false); return; }
+      messages = data.messages || [];
+      renderCards();
+    } catch(e) {
+      showToast('通信エラー: ' + e.message, false);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '更新';
+    }
+  }
+
+  // ── RENDER ──────────────────────────────────────────────────────────────────
+  function renderCards() {
+    const container = document.getElementById('cards-container');
+    const unread = messages.filter(m => !sent.has(m.id) && !skipped.has(m.id));
+    document.getElementById('unread-badge').textContent = unread.length + ' 件';
+
+    if (messages.length === 0) { showScreen('empty'); return; }
+    showScreen('cards');
+
+    container.innerHTML = messages.map(m => buildCard(m)).join('');
+  }
+
+  function buildCard(m) {
+    const isSent    = sent.has(m.id);
+    const isSkipped = skipped.has(m.id);
+    const cardClass = isSent ? 'sent' : isSkipped ? 'skipped' : '';
+    const statusLabel = isSent ? 'sent' : isSkipped ? 'skipped' : 'pending';
+    const statusText  = isSent ? '送信済み' : isSkipped ? 'スキップ' : '未対応';
+
+    if (m.error) {
+      return `
+        <div class="card" id="card-${m.id}">
+          <div class="card-header">
+            <div class="meta-chip">予約ID: ${m.bookingId}</div>
+            <span class="status-badge pending">エラー</span>
+          </div>
+          <div class="panel"><p style="color:#ef476f;font-size:.85rem">${m.error}</p>
+          <p style="margin-top:8px;font-size:.82rem">${m.guestText}</p></div>
+        </div>`;
+    }
+
+    const threadHtml = (m.thread || [])
+      .filter(t => !(t.source === 'guest' && !t.read))
+      .slice(-5)
+      .map(t => `
+        <div class="thread-msg ${t.source}">
+          <div class="thread-sender">${t.source === 'guest' ? 'ゲスト' : 'ホスト'}</div>
+          ${escHtml(t.message.slice(0, 120))}${t.message.length > 120 ? '…' : ''}
+        </div>`).join('');
+
+    const disabled = isSent || isSkipped;
+
+    return `
+      <div class="card ${cardClass}" id="card-${m.id}">
+        <div class="card-header">
+          <div class="card-meta">
+            <span class="meta-chip guest">${escHtml(m.guestName)}</span>
+            <span class="meta-chip">予約 ${m.bookingId}</span>
+            <span class="meta-chip">${escHtml(m.propertyName)}</span>
+            <span class="meta-chip">IN ${m.checkIn} → OUT ${m.checkOut}</span>
+            <span class="meta-chip time">${m.time}</span>
+          </div>
+          <span class="status-badge ${statusLabel}" id="status-${m.id}">${statusText}</span>
+        </div>
+
+        <div class="card-body">
+          <div class="panel panel-left">
+            ${threadHtml ? `<div class="panel-label">会話履歴</div>
+            <div class="thread">${threadHtml}</div>` : ''}
+            <div class="panel-label">ゲストのメッセージ</div>
+            <div class="guest-latest">${escHtml(m.guestText)}</div>
+          </div>
+
+          <div class="panel">
+            <div class="ai-label">
+              <span class="panel-label" style="margin:0">返信案</span>
+              <span class="ai-badge">AI</span>
+            </div>
+            <textarea
+              class="draft-textarea"
+              id="draft-${m.id}"
+              ${disabled ? 'disabled' : ''}
+            >${escHtml(m.draft || '')}</textarea>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button class="btn btn-skip"
+            id="skip-${m.id}"
+            onclick="skipMessage(${m.id})"
+            ${disabled ? 'disabled' : ''}>スキップ</button>
+          <button class="btn btn-send"
+            id="send-${m.id}"
+            onclick="sendMessage(${m.id}, ${m.bookingId})"
+            ${disabled ? 'disabled' : ''}>送信</button>
+        </div>
+      </div>`;
+  }
+
+  // ── ACTIONS ─────────────────────────────────────────────────────────────────
+  async function sendMessage(id, bookingId) {
+    const textarea = document.getElementById(`draft-${id}`);
+    const message  = textarea.value.trim();
+    if (!message) { showToast('返信内容が空です', false); return; }
+
+    setCardLoading(id, true);
+
+    try {
+      const res  = await fetch('/api/send', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ bookingId, message }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        sent.add(id);
+        showToast(`予約 ${bookingId} に送信しました`, true);
+        updateCardStatus(id, 'sent', '送信済み');
+      } else {
+        showToast('送信失敗: ' + (data.error || '不明なエラー'), false);
+        setCardLoading(id, false);
+      }
+    } catch(e) {
+      showToast('通信エラー: ' + e.message, false);
+      setCardLoading(id, false);
+    }
+
+    document.getElementById('unread-badge').textContent =
+      messages.filter(m => !sent.has(m.id) && !skipped.has(m.id)).length + ' 件';
+  }
+
+  function skipMessage(id) {
+    skipped.add(id);
+    updateCardStatus(id, 'skipped', 'スキップ');
+    document.getElementById(`send-${id}`).disabled = true;
+    document.getElementById(`skip-${id}`).disabled = true;
+    document.getElementById(`draft-${id}`).disabled = true;
+    document.getElementById(`card-${id}`).classList.add('skipped');
+    document.getElementById('unread-badge').textContent =
+      messages.filter(m => !sent.has(m.id) && !skipped.has(m.id)).length + ' 件';
+  }
+
+  // ── HELPERS ──────────────────────────────────────────────────────────────────
+  function setCardLoading(id, loading) {
+    const sendBtn = document.getElementById(`send-${id}`);
+    const skipBtn = document.getElementById(`skip-${id}`);
+    sendBtn.disabled = loading;
+    skipBtn.disabled = loading;
+    sendBtn.textContent = loading ? '送信中...' : '送信';
+    if (loading) sendBtn.classList.add('btn-loading');
+    else         sendBtn.classList.remove('btn-loading');
+  }
+
+  function updateCardStatus(id, cls, label) {
+    const badge = document.getElementById(`status-${id}`);
+    badge.className = `status-badge ${cls}`;
+    badge.textContent = label;
+    const card = document.getElementById(`card-${id}`);
+    card.classList.remove('sent', 'skipped');
+    card.classList.add(cls);
+  }
+
+  function showScreen(which) {
+    document.getElementById('loading-screen').style.display = which === 'loading' ? '' : 'none';
+    document.getElementById('empty-screen').style.display   = which === 'empty'   ? '' : 'none';
+    document.getElementById('cards-container').style.display = which === 'cards'  ? '' : 'none';
+  }
+
+  let _toastTimer;
+  function showToast(msg, ok) {
+    const t = document.getElementById('toast');
+    t.textContent = (ok ? '✅ ' : '❌ ') + msg;
+    t.className = 'show ' + (ok ? 'ok' : 'err');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => { t.className = ''; }, 3500);
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+      .replace(/\n/g,'<br>');
+  }
+
+  // ── INIT ─────────────────────────────────────────────────────────────────────
+  showScreen('loading');
+  document.getElementById('cards-container').style.display = 'none';
+  loadMessages();
+</script>
+</body>
+</html>
