@@ -1,6 +1,7 @@
 """
 line_webhook.py — LINE Webhookサーバー
 LINEからのpostback（承認/修正）を受け取り、Beds24に返信を送信する。
+データソース: DB（sync_service.pyが事前に同期済み）
 """
 import os
 import re
@@ -29,7 +30,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from beds24 import get_access_token, send_reply
-from pending_store import load_pending, save_pending
+import db
 
 # ===== 設定 =====
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
@@ -40,7 +41,7 @@ app = Flask(__name__)
 handler = WebhookHandler(CHANNEL_SECRET)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 
-# 編集中ステートを管理（user_id → pending_id）
+# 編集中ステートを管理（user_id → message_id）
 editing_state = {}
 
 
@@ -58,7 +59,7 @@ def reply_text(reply_token: str, text: str):
 
 
 def _send_to_beds24(booking_id: int, message: str) -> bool:
-    """Beds24にメッセージを送信する（beds24.pyを利用）"""
+    """Beds24にメッセージを送信する"""
     token = get_access_token()
     if not token:
         print("[ERROR] Beds24トークン取得失敗")
@@ -91,27 +92,33 @@ def handle_postback(event):
     if not action or not pending_id:
         return
 
-    pending = load_pending()
-    item = pending.get(pending_id)
+    # pending_id = DB上のmessage_id
+    message_id = int(pending_id)
+    message = db.get_message_by_id(message_id)
 
-    if not item:
+    if not message:
         reply_text(event.reply_token, "このメッセージは期限切れか、既に処理済みです。")
         return
 
-    if item.get("status") != "pending":
+    if message["status"] != "draft_ready":
         reply_text(event.reply_token, "このメッセージは既に処理済みです。")
         return
 
-    booking_id = item["booking_id"]
+    booking_id = message["booking_id"]
+    draft = db.get_draft(message_id)
 
     # ── 承認 ──
     if action == "approve":
-        ai_reply = item["ai_reply"]
-        success = _send_to_beds24(int(booking_id), ai_reply)
+        if not draft:
+            reply_text(event.reply_token, "AIドラフトが見つかりませんでした。")
+            return
+
+        draft_text = draft["draft_text"]
+        success = _send_to_beds24(booking_id, draft_text)
 
         if success:
-            item["status"] = "sent"
-            save_pending(pending)
+            db.update_message_status(message_id, "sent")
+            db.log_action(message_id, draft["id"], "sent", draft_text, "line")
             reply_text(
                 event.reply_token,
                 f"送信完了\n予約ID: {booking_id}\n\nBeds24にメッセージを送信しました。",
@@ -125,8 +132,8 @@ def handle_postback(event):
 
     # ── 修正 ──
     elif action == "edit":
-        editing_state[user_id] = pending_id
-        guest_msg = item.get("guest_message", "")[:100]
+        editing_state[user_id] = message_id
+        guest_msg = message.get("message", "")[:100]
         reply_text(
             event.reply_token,
             f"修正モード\n予約ID: {booking_id}\n\n"
@@ -143,26 +150,25 @@ def handle_message(event):
 
     # 編集中ステートがある場合のみ処理
     if user_id not in editing_state:
-        reply_text(event.reply_token, "ai_reply.py を実行すると、未読メッセージの返信案が届きます。")
+        reply_text(event.reply_token, "sync_service.py が稼働中であれば、未読メッセージの返信案が自動で届きます。")
         return
 
-    pending_id = editing_state.pop(user_id)
-    pending = load_pending()
-    item = pending.get(pending_id)
+    message_id = editing_state.pop(user_id)
+    message = db.get_message_by_id(message_id)
 
-    if not item:
+    if not message:
         reply_text(event.reply_token, "対象のメッセージが見つかりませんでした。")
         return
 
-    booking_id = item["booking_id"]
+    booking_id = message["booking_id"]
+    draft = db.get_draft(message_id)
 
     # 修正文をBeds24に送信
-    success = _send_to_beds24(int(booking_id), text)
+    success = _send_to_beds24(booking_id, text)
 
     if success:
-        item["status"] = "sent_edited"
-        item["edited_reply"] = text
-        save_pending(pending)
+        db.update_message_status(message_id, "sent")
+        db.log_action(message_id, draft["id"] if draft else None, "edited", text, "line")
         reply_text(
             event.reply_token,
             f"修正版を送信完了\n予約ID: {booking_id}\n\n"
@@ -171,7 +177,7 @@ def handle_message(event):
         print(f"[OK] 修正・送信完了 — 予約ID: {booking_id}")
     else:
         # 失敗した場合は編集ステートを戻す
-        editing_state[user_id] = pending_id
+        editing_state[user_id] = message_id
         reply_text(
             event.reply_token,
             f"送信失敗\n予約ID: {booking_id}\n\nBeds24への送信でエラーが発生しました。もう一度送信文を入力してください。",

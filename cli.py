@@ -1,13 +1,11 @@
 """
-cli.py — Agent 1 (Frontend)
-Human-in-the-Loop CLI for Minpaku DX
-Handles display, user input, approval flow, and edit mode.
-Does NOT call Beds24 or Gemini directly — those come from beds24.py / ai_engine.py.
+cli.py — CLI承認フロー
+DBからdraft_readyメッセージを表示し、承認/編集/スキップの操作を行う。
 """
-
-import os
-import sys
 import textwrap
+
+from beds24 import get_access_token, send_reply
+import db
 
 
 # ─────────────────────────────────────────────
@@ -29,7 +27,6 @@ def _section(label):
     print("  " + "─" * (WIDTH - 2))
 
 def _wrap(text, indent=4):
-    """Word-wrap long text with indentation."""
     lines = text.strip().split("\n")
     for line in lines:
         if line.strip() == "":
@@ -44,42 +41,37 @@ def _badge(label, value, color_code=""):
 
 
 # ─────────────────────────────────────────────
-#  BOOKING INFO DISPLAY
+#  DISPLAY FUNCTIONS
 # ─────────────────────────────────────────────
 
-def display_booking_header(index, total, booking_info, msg):
-    """Print the top section: booking + guest info."""
+def display_booking_header(index, total, booking, msg):
     _header(f"メッセージ {index}/{total}")
-    _badge("予約ID", msg.get("bookingId", "不明"))
-    _badge("物件", booking_info.get("propertyName", "不明"))
-    _badge("ゲスト", booking_info.get("guestName", "不明"), "\033[96m")
-    _badge("チェックイン", booking_info.get("checkIn", "不明"))
-    _badge("チェックアウト", booking_info.get("checkOut", "不明"))
-    _badge("受信時刻", msg.get("time", "")[:16].replace("T", " "))
+    _badge("予約ID", msg.get("booking_id", "不明"))
+    _badge("物件", booking.get("property_name", "不明") if booking else "不明")
+    _badge("ゲスト", booking.get("guest_name", "不明") if booking else "不明", "\033[96m")
+    _badge("チェックイン", booking.get("check_in", "不明") if booking else "不明")
+    _badge("チェックアウト", booking.get("check_out", "不明") if booking else "不明")
+    _badge("受信時刻", msg.get("sent_at", "")[:16].replace("T", " "))
 
 
 def display_thread(thread):
-    """Print the conversation history above the latest message."""
     if not thread:
         return
     _section("会話履歴")
-    # Show up to last 6 messages for context (excluding the unread one)
-    history = [m for m in thread if not (m.get("source") == "guest" and not m.get("read"))]
+    history = [m for m in thread if not (m.get("source") == "guest" and not m.get("is_read"))]
     for m in history[-6:]:
         sender_label = "\033[93mゲスト\033[0m" if m.get("source") == "guest" else "\033[90mホスト\033[0m"
-        time_str = m.get("time", "")[:16].replace("T", " ")
+        time_str = m.get("sent_at", "")[:16].replace("T", " ")
         print(f"\n  [{time_str}] {sender_label}")
         _wrap(m.get("message", ""), indent=4)
 
 
 def display_guest_message(msg):
-    """Print the unread guest message (highlighted)."""
     _section("ゲストの最新メッセージ \033[91m[未読]\033[0m")
     _wrap(msg.get("message", "（メッセージなし）"), indent=4)
 
 
 def display_ai_draft(draft):
-    """Print the AI-generated reply draft."""
     _section("AI返信案")
     _wrap(draft, indent=4)
 
@@ -89,7 +81,6 @@ def display_ai_draft(draft):
 # ─────────────────────────────────────────────
 
 def prompt_action():
-    """Ask user what to do with the AI draft. Returns 's', 'e', or 'n'."""
     print()
     _line()
     print("  [s] 送信  [e] 編集  [n] スキップ")
@@ -102,11 +93,6 @@ def prompt_action():
 
 
 def edit_mode(original_draft):
-    """
-    Let the user rewrite the reply.
-    Shows the original, clears it, lets user type freely.
-    Returns the edited text.
-    """
     print()
     print("  \033[93m編集モード\033[0m — 新しい返信を入力してください。")
     print("  （複数行入力可。空行を2回連続で入力すると確定します）")
@@ -136,7 +122,6 @@ def edit_mode(original_draft):
 
 
 def confirm_send(message_text):
-    """Final confirmation before actually sending. Returns True to send."""
     print()
     _section("送信内容の最終確認")
     _wrap(message_text, indent=4)
@@ -153,10 +138,6 @@ def confirm_send(message_text):
         print("  'y' か 'n' を入力してください。")
 
 
-# ─────────────────────────────────────────────
-#  SEND RESULT FEEDBACK
-# ─────────────────────────────────────────────
-
 def display_send_success(booking_id):
     print(f"\n  \033[92m送信完了\033[0m — 予約ID {booking_id} に返信しました。\n")
 
@@ -168,73 +149,61 @@ def display_skipped(booking_id):
 
 
 # ─────────────────────────────────────────────
-#  MAIN SESSION — runs through all unread messages
+#  MAIN SESSION — DBから読み取り
 # ─────────────────────────────────────────────
 
-def run_session(token, get_unread_fn, get_thread_fn, get_booking_fn, generate_fn, send_fn):
-    """
-    Process all unread guest messages one by one.
-
-    Args:
-        token:          Beds24 access token (str)
-        get_unread_fn:  beds24.get_unread_guest_messages
-        get_thread_fn:  beds24.get_message_thread
-        get_booking_fn: beds24.get_booking_details
-        generate_fn:    ai_engine.generate_reply
-        send_fn:        beds24.send_reply
-    """
-    messages = get_unread_fn(token)
+def run_session():
+    """DBからdraft_readyメッセージを取得し、承認フローを実行する。"""
+    messages = db.get_draft_ready_messages()
 
     if not messages:
-        print("\n  未読のゲストメッセージはありません。\n")
+        print("\n  承認待ちのメッセージはありません。\n")
         return
 
     total = len(messages)
-    print(f"\n  未読ゲストメッセージ: {total} 件\n")
+    print(f"\n  承認待ちメッセージ: {total} 件\n")
+
+    token = get_access_token()
+    if not token:
+        print("\n  [ERROR] Beds24認証失敗。.env の REFRESH_TOKEN を確認してください。\n")
+        return
 
     for index, msg in enumerate(messages, start=1):
-        booking_id = msg.get("bookingId")
-        property_id = msg.get("propertyId")
+        message_id = msg["id"]
+        booking_id = msg["booking_id"]
+        draft_text = msg.get("draft_text", "")
+        draft_id = msg.get("draft_id")
 
-        # Fetch context from backend
-        thread = get_thread_fn(token, booking_id)
-        booking_info = get_booking_fn(token, booking_id)
+        booking = db.get_booking(booking_id)
+        thread = db.get_thread(booking_id)
 
-        # Generate AI draft
-        guest_text = msg.get("message", "")
-        print("\n  AI返信案を生成中...")
-        draft = generate_fn(
-            guest_message=guest_text,
-            property_id=property_id,
-            thread=thread,
-            booking_info=booking_info,
-        )
-
-        # Display everything
-        display_booking_header(index, total, booking_info, msg)
+        display_booking_header(index, total, booking, msg)
         display_thread(thread)
         display_guest_message(msg)
-        display_ai_draft(draft)
+        display_ai_draft(draft_text)
 
-        # Approval loop
-        final_reply = draft
+        final_reply = draft_text
         while True:
             action = prompt_action()
 
             if action == "n":
+                db.update_message_status(message_id, "skipped")
+                db.log_action(message_id, draft_id, "skipped", None, "cli")
                 display_skipped(booking_id)
                 break
 
             if action == "e":
-                final_reply = edit_mode(draft)
+                final_reply = edit_mode(draft_text)
                 display_ai_draft(final_reply)
-                # Go back to s/e/n after editing
                 continue
 
             if action == "s":
                 if confirm_send(final_reply):
-                    success = send_fn(token, booking_id, final_reply)
+                    success = send_reply(token, booking_id, final_reply)
                     if success:
+                        act = "sent" if final_reply == draft_text else "edited"
+                        db.update_message_status(message_id, "sent")
+                        db.log_action(message_id, draft_id, act, final_reply, "cli")
                         display_send_success(booking_id)
                     else:
                         display_send_failure(booking_id)

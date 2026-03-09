@@ -1,25 +1,18 @@
 """
-web_app.py — Agent 1 (Frontend)
-Minpaku DX Web Dashboard — localhost UI for Human-in-the-Loop message approval.
+web_app.py — Minpaku DX Web Dashboard
+データソース: DB（sync_service.pyが事前に同期済み）
 Run: python web_app.py
-Open: http://localhost:5000
+Open: http://localhost:8080
 """
-
 import threading
 from flask import Flask, render_template, request, jsonify
 
-from beds24 import (
-    get_access_token,
-    get_unread_guest_messages,
-    get_message_thread,
-    get_booking_details,
-    send_reply,
-)
-from ai_engine import generate_reply
+from beds24 import get_access_token, send_reply
+import db
 
 app = Flask(__name__)
 
-# ── token cache (refresh once per session) ──────────────────────────────────
+# ── token cache (for sending only) ───────────────────────────────────────────
 _token_cache = {"token": None}
 _token_lock = threading.Lock()
 
@@ -34,35 +27,6 @@ def invalidate_token():
         _token_cache["token"] = None
 
 
-# ── helpers ─────────────────────────────────────────────────────────────────
-
-def build_message_card(msg, token):
-    """Fetch full context for one message and generate AI draft."""
-    booking_id  = msg["bookingId"]
-    property_id = msg.get("propertyId") or 0
-    thread      = get_message_thread(token, booking_id)
-    booking     = get_booking_details(token, booking_id)
-    draft       = generate_reply(
-        guest_message=msg["message"],
-        property_id=property_id,
-        thread=thread,
-        booking_info=booking,
-    )
-    return {
-        "id":          msg["id"],
-        "bookingId":   booking_id,
-        "propertyId":  property_id,
-        "guestText":   msg["message"],
-        "time":        msg.get("time", "")[:16].replace("T", " "),
-        "guestName":   booking.get("guestName", "不明"),
-        "checkIn":     booking.get("checkIn", ""),
-        "checkOut":    booking.get("checkOut", ""),
-        "propertyName":booking.get("propertyName", ""),
-        "draft":       draft,
-        "thread":      thread,
-    }
-
-
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -72,53 +36,84 @@ def index():
 
 @app.route("/api/messages")
 def api_messages():
-    """Fetch unread messages + generate AI drafts. Called by JS on load/refresh."""
-    token = get_token()
-    if not token:
-        return jsonify({"error": "Beds24認証失敗"}), 500
-
-    raw = get_unread_guest_messages(token)
+    """DBからdraft_readyメッセージ + AIドラフトを返す。AI再生成なし。"""
+    messages = db.get_draft_ready_messages()
     cards = []
-    for msg in raw:
-        try:
-            cards.append(build_message_card(msg, token))
-        except Exception as e:
-            cards.append({
-                "id": msg.get("id"),
-                "bookingId": msg.get("bookingId"),
-                "error": str(e),
-                "guestText": msg.get("message", ""),
-            })
+    for msg in messages:
+        booking = db.get_booking(msg["booking_id"])
+        thread = db.get_thread(msg["booking_id"])
+        # threadをフロントエンド用のフォーマットに変換
+        thread_formatted = [
+            {
+                "id": m["beds24_message_id"],
+                "bookingId": m["booking_id"],
+                "propertyId": m["property_id"],
+                "message": m["message"],
+                "time": m.get("sent_at", ""),
+                "source": m["source"],
+                "read": bool(m["is_read"]),
+            }
+            for m in thread
+        ]
+        cards.append({
+            "id": msg["id"],
+            "bookingId": msg["booking_id"],
+            "propertyId": msg.get("property_id") or 0,
+            "guestText": msg["message"],
+            "time": msg.get("sent_at", "")[:16].replace("T", " "),
+            "guestName": booking.get("guest_name", "不明") if booking else "不明",
+            "checkIn": booking.get("check_in", "") if booking else "",
+            "checkOut": booking.get("check_out", "") if booking else "",
+            "propertyName": booking.get("property_name", "") if booking else "",
+            "draft": msg.get("draft_text", ""),
+            "thread": thread_formatted,
+        })
     return jsonify({"messages": cards})
 
 
 @app.route("/api/send", methods=["POST"])
 def api_send():
-    """Send a reply to Beds24."""
-    body      = request.json
+    """Beds24にメッセージ送信 + DB更新。"""
+    body = request.json
+    message_id = body.get("messageId")
     booking_id = body.get("bookingId")
-    message    = body.get("message", "").strip()
+    message_text = body.get("message", "").strip()
 
-    if not booking_id or not message:
+    if not booking_id or not message_text:
         return jsonify({"ok": False, "error": "bookingIdとmessageは必須です"}), 400
 
     token = get_token()
     if not token:
         return jsonify({"ok": False, "error": "認証失敗"}), 500
 
-    success = send_reply(token, int(booking_id), message)
+    success = send_reply(token, int(booking_id), message_text)
     if not success:
-        # Token might be stale — invalidate and retry once
         invalidate_token()
         token = get_token()
-        success = send_reply(token, int(booking_id), message)
+        success = send_reply(token, int(booking_id), message_text)
+
+    if success and message_id:
+        msg = db.get_message_by_id(int(message_id))
+        draft = db.get_draft(int(message_id))
+        original_draft = draft["draft_text"] if draft else ""
+        action = "sent" if message_text == original_draft else "edited"
+        db.update_message_status(int(message_id), "sent")
+        db.log_action(int(message_id), draft["id"] if draft else None, action, message_text, "web")
 
     return jsonify({"ok": success})
 
 
 @app.route("/api/skip", methods=["POST"])
 def api_skip():
-    """Client-side skip — nothing to do server-side, just ack."""
+    """メッセージをスキップ — DB更新。"""
+    body = request.json
+    message_id = body.get("messageId")
+
+    if message_id:
+        draft = db.get_draft(int(message_id))
+        db.update_message_status(int(message_id), "skipped")
+        db.log_action(int(message_id), draft["id"] if draft else None, "skipped", None, "web")
+
     return jsonify({"ok": True})
 
 

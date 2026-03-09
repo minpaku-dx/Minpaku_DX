@@ -9,6 +9,7 @@ __pycache__/
 
 # Runtime data
 pending.json
+minpaku.db
 logs/
 
 # IDE
