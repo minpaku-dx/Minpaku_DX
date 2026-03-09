@@ -1,11 +1,12 @@
 """
 line_webhook.py — LINE Webhookサーバー
 LINEからのpostback（承認/修正）を受け取り、Beds24に返信を送信する。
-起動すると ngrok トンネルが自動的に開き、外部URLが発行される。
 """
-import json
 import os
-import requests
+import re
+import subprocess
+import threading
+import time
 from urllib.parse import parse_qs
 
 from flask import Flask, request, abort
@@ -24,15 +25,15 @@ from linebot.v3.messaging import (
     TextMessage,
 )
 
-# ===== 設定 =====
 from dotenv import load_dotenv
 load_dotenv()
 
+from beds24 import get_access_token, send_reply
+from pending_store import load_pending, save_pending
+
+# ===== 設定 =====
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-BEDS24_REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
-
-PENDING_FILE = os.path.join(os.path.dirname(__file__), "pending.json")
 
 # Flask & LINE SDK
 app = Flask(__name__)
@@ -41,55 +42,6 @@ configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 
 # 編集中ステートを管理（user_id → pending_id）
 editing_state = {}
-
-
-# ===== pending.json 管理 =====
-def load_pending():
-    if os.path.exists(PENDING_FILE):
-        with open(PENDING_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def save_pending(data):
-    with open(PENDING_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-# ===== Beds24 API =====
-def get_beds24_token():
-    """Beds24 アクセストークンを取得する"""
-    url = "https://beds24.com/api/v2/authentication/token"
-    headers = {"accept": "application/json", "refreshToken": BEDS24_REFRESH_TOKEN}
-    resp = requests.get(url, headers=headers)
-    if resp.status_code == 200:
-        return resp.json().get("token")
-    return None
-
-
-def send_to_beds24(booking_id: int, message: str) -> bool:
-    """Beds24にメッセージを送信する"""
-    token = get_beds24_token()
-    if not token:
-        print("[ERROR] Beds24トークン取得失敗")
-        return False
-
-    url = "https://beds24.com/api/v2/bookings/messages"
-    headers = {
-        "accept": "application/json",
-        "Content-Type": "application/json",
-        "token": token,
-    }
-    payload = {
-        "bookingId": booking_id,
-        "message": message,
-        "source": "host",
-    }
-    resp = requests.post(url, headers=headers, json=payload, timeout=10)
-    if resp.status_code in (200, 201):
-        return True
-    print(f"[ERROR] Beds24送信エラー: {resp.status_code} {resp.text}")
-    return False
 
 
 # ===== LINE Reply ヘルパー =====
@@ -103,6 +55,15 @@ def reply_text(reply_token: str, text: str):
                 messages=[TextMessage(text=text)],
             )
         )
+
+
+def _send_to_beds24(booking_id: int, message: str) -> bool:
+    """Beds24にメッセージを送信する（beds24.pyを利用）"""
+    token = get_access_token()
+    if not token:
+        print("[ERROR] Beds24トークン取得失敗")
+        return False
+    return send_reply(token, booking_id, message)
 
 
 # ===== Webhook エンドポイント =====
@@ -134,11 +95,11 @@ def handle_postback(event):
     item = pending.get(pending_id)
 
     if not item:
-        reply_text(event.reply_token, "⚠️ このメッセージは期限切れか、既に処理済みです。")
+        reply_text(event.reply_token, "このメッセージは期限切れか、既に処理済みです。")
         return
 
     if item.get("status") != "pending":
-        reply_text(event.reply_token, "✅ このメッセージは既に処理済みです。")
+        reply_text(event.reply_token, "このメッセージは既に処理済みです。")
         return
 
     booking_id = item["booking_id"]
@@ -146,20 +107,20 @@ def handle_postback(event):
     # ── 承認 ──
     if action == "approve":
         ai_reply = item["ai_reply"]
-        success = send_to_beds24(int(booking_id), ai_reply)
+        success = _send_to_beds24(int(booking_id), ai_reply)
 
         if success:
             item["status"] = "sent"
             save_pending(pending)
             reply_text(
                 event.reply_token,
-                f"✅ 送信完了！\n予約ID: {booking_id}\n\nBeds24にメッセージを送信しました。",
+                f"送信完了\n予約ID: {booking_id}\n\nBeds24にメッセージを送信しました。",
             )
             print(f"[OK] 承認・送信完了 — 予約ID: {booking_id}")
         else:
             reply_text(
                 event.reply_token,
-                f"❌ 送信失敗\n予約ID: {booking_id}\n\nBeds24への送信でエラーが発生しました。再度お試しください。",
+                f"送信失敗\n予約ID: {booking_id}\n\nBeds24への送信でエラーが発生しました。再度お試しください。",
             )
 
     # ── 修正 ──
@@ -168,7 +129,7 @@ def handle_postback(event):
         guest_msg = item.get("guest_message", "")[:100]
         reply_text(
             event.reply_token,
-            f"✏️ 修正モード\n予約ID: {booking_id}\n\n"
+            f"修正モード\n予約ID: {booking_id}\n\n"
             f"【ゲスト】\n{guest_msg}\n\n"
             f"修正した返信文をこのチャットに入力してください。",
         )
@@ -182,7 +143,7 @@ def handle_message(event):
 
     # 編集中ステートがある場合のみ処理
     if user_id not in editing_state:
-        reply_text(event.reply_token, "💡 ai_reply.py を実行すると、未読メッセージの返信案が届きます。")
+        reply_text(event.reply_token, "ai_reply.py を実行すると、未読メッセージの返信案が届きます。")
         return
 
     pending_id = editing_state.pop(user_id)
@@ -190,13 +151,13 @@ def handle_message(event):
     item = pending.get(pending_id)
 
     if not item:
-        reply_text(event.reply_token, "⚠️ 対象のメッセージが見つかりませんでした。")
+        reply_text(event.reply_token, "対象のメッセージが見つかりませんでした。")
         return
 
     booking_id = item["booking_id"]
 
     # 修正文をBeds24に送信
-    success = send_to_beds24(int(booking_id), text)
+    success = _send_to_beds24(int(booking_id), text)
 
     if success:
         item["status"] = "sent_edited"
@@ -204,7 +165,7 @@ def handle_message(event):
         save_pending(pending)
         reply_text(
             event.reply_token,
-            f"✅ 修正版を送信完了！\n予約ID: {booking_id}\n\n"
+            f"修正版を送信完了\n予約ID: {booking_id}\n\n"
             f"【送信内容】\n{text[:200]}",
         )
         print(f"[OK] 修正・送信完了 — 予約ID: {booking_id}")
@@ -213,19 +174,13 @@ def handle_message(event):
         editing_state[user_id] = pending_id
         reply_text(
             event.reply_token,
-            f"❌ 送信失敗\n予約ID: {booking_id}\n\nBeds24への送信でエラーが発生しました。もう一度送信文を入力してください。",
+            f"送信失敗\n予約ID: {booking_id}\n\nBeds24への送信でエラーが発生しました。もう一度送信文を入力してください。",
         )
 
 
 # ===== サーバー起動 =====
 if __name__ == "__main__":
     PORT = 5000
-
-    # cloudflared トンネルを開く
-    import subprocess
-    import threading
-    import re
-    import time
 
     def start_cloudflared():
         """cloudflared を起動し、公開URLを取得して表示する"""
@@ -244,7 +199,7 @@ if __name__ == "__main__":
                 print(f"  Tunnel URL: {public_url}")
                 print(f"  Webhook URL: {public_url}/callback")
                 print(f"{'='*60}")
-                print(f"\n  ↑ このWebhook URLを LINE Developers Console に設定してください。")
+                print(f"\n  このWebhook URLを LINE Developers Console に設定してください。")
                 print(f"  設定場所: Messaging API → Webhook URL\n")
 
     tunnel_thread = threading.Thread(target=start_cloudflared, daemon=True)

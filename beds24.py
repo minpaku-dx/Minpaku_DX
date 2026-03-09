@@ -7,6 +7,9 @@ load_dotenv()
 BEDS24_API_BASE = "https://beds24.com/api/v2"
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
+# ページネーション上限（無限ループ防止）
+MAX_PAGES = 20
+
 
 def get_access_token() -> str | None:
     """Beds24のアクセストークンを返す。失敗時はNone。"""
@@ -22,63 +25,69 @@ def get_access_token() -> str | None:
     return None
 
 
-def get_unread_guest_messages(token: str) -> list[dict]:
-    """未読かつsource=='guest'のメッセージリストを返す。"""
+def _fetch_messages_paginated(token: str, params: dict) -> list[dict]:
+    """メッセージAPIを全ページ取得して結合する。"""
     url = f"{BEDS24_API_BASE}/bookings/messages"
     headers = {"accept": "application/json", "token": token}
-    params = {"limit": 50}
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        if response.status_code != 200:
-            print(f"[beds24] メッセージ取得エラー: {response.status_code} {response.text}")
-            return []
-        messages = response.json().get("data", [])
-        return [
-            {
-                "id": m.get("id"),
-                "bookingId": m.get("bookingId"),
-                "propertyId": m.get("propId") or m.get("propertyId"),
-                "message": m.get("message", ""),
-                "time": m.get("time", ""),
-                "source": m.get("source", ""),
-            }
-            for m in messages
-            if m.get("source") == "guest" and not m.get("read")
-        ]
-    except requests.RequestException as e:
-        print(f"[beds24] 接続エラー: {e}")
-        return []
+    all_messages = []
+
+    page = 1
+    while page <= MAX_PAGES:
+        params["page"] = page
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            if response.status_code != 200:
+                print(f"[beds24] メッセージ取得エラー (page {page}): {response.status_code} {response.text}")
+                break
+
+            body = response.json()
+            data = body.get("data", [])
+            all_messages.extend(data)
+
+            # ページネーション情報を確認
+            pages_info = body.get("pages", {})
+            total_pages = pages_info.get("total", 1)
+
+            if page >= total_pages:
+                break
+            page += 1
+
+        except requests.RequestException as e:
+            print(f"[beds24] 接続エラー (page {page}): {e}")
+            break
+
+    return all_messages
+
+
+def _normalize_message(m: dict) -> dict:
+    """APIレスポンスのメッセージを統一スキーマに変換する。"""
+    return {
+        "id": m.get("id"),
+        "bookingId": m.get("bookingId"),
+        "propertyId": m.get("propId") or m.get("propertyId"),
+        "message": m.get("message", ""),
+        "time": m.get("time", ""),
+        "source": m.get("source", ""),
+        "read": bool(m.get("read")),
+    }
+
+
+def get_unread_guest_messages(token: str) -> list[dict]:
+    """未読かつsource=='guest'のメッセージリストを全ページから返す。"""
+    messages = _fetch_messages_paginated(token, {})
+    return [
+        _normalize_message(m)
+        for m in messages
+        if m.get("source") == "guest" and not m.get("read")
+    ]
 
 
 def get_message_thread(token: str, booking_id: int) -> list[dict]:
     """指定bookingIdの会話スレッド全件を時系列順で返す。"""
-    url = f"{BEDS24_API_BASE}/bookings/messages"
-    headers = {"accept": "application/json", "token": token}
-    params = {"bookingId": booking_id, "limit": 200}
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        if response.status_code != 200:
-            print(f"[beds24] スレッド取得エラー: {response.status_code} {response.text}")
-            return []
-        messages = response.json().get("data", [])
-        thread = [
-            {
-                "id": m.get("id"),
-                "bookingId": m.get("bookingId"),
-                "propertyId": m.get("propId") or m.get("propertyId"),
-                "message": m.get("message", ""),
-                "time": m.get("time", ""),
-                "source": m.get("source", ""),
-                "read": bool(m.get("read")),
-            }
-            for m in messages
-        ]
-        # 時系列順（古い順）に並べる
-        thread.sort(key=lambda m: m.get("time", ""))
-        return thread
-    except requests.RequestException as e:
-        print(f"[beds24] 接続エラー: {e}")
-        return []
+    messages = _fetch_messages_paginated(token, {"bookingId": booking_id})
+    thread = [_normalize_message(m) for m in messages]
+    thread.sort(key=lambda m: m.get("time", ""))
+    return thread
 
 
 def get_booking_details(token: str, booking_id: int) -> dict:
