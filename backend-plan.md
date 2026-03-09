@@ -143,12 +143,14 @@ ai_reply.py の置き換え。Beds24 → DB同期の**唯一のプロセス**。
 
 **ゴール**: cloudflaredトンネル廃止、クラウドで安定稼働
 
-- [ ] FastAPIへの統合（Flask → FastAPI）
-- [ ] Supabaseプロジェクト作成（db.py接続先切り替え）
-- [ ] Railway or Renderにデプロイ
-- [ ] APSchedulerでsync_serviceをバックグラウンド実行
-- [ ] LINE Webhook URL固定化
-- [ ] Flex Messageデザイン改善（ゲスト名・物件名ヘッダー）
+- [x] FastAPIへの統合（app.py: LINE Webhook + Web + Background Sync 統合）
+- [x] db.py PostgreSQL/Supabase対応（DATABASE_URL環境変数で自動切り替え）
+- [x] APSchedulerでsync_serviceをバックグラウンド実行（app.py lifespan内）
+- [x] Flex Messageデザイン改善（ゲスト名・物件名ヘッダー追加）
+- [x] Procfile + requirements.txt 更新（Railway対応）
+- [ ] Supabaseプロジェクト作成 → DATABASE_URL設定（ユーザー作業）
+- [ ] Railwayにデプロイ → 固定URL取得（ユーザー作業）
+- [ ] LINE Webhook URLを固定URLに変更（ユーザー作業）
 
 ---
 

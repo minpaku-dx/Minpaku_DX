@@ -178,6 +178,7 @@ def run_once():
 
         # LINE通知用のデータ準備
         draft = db.get_draft(msg["id"])
+        booking = db.get_booking(booking_id)
         thread = db.get_thread(booking_id)
         thread_for_summary = [
             {"source": m["source"], "message": m["message"]}
@@ -185,8 +186,9 @@ def run_once():
         ]
         conversation_summary = build_conversation_summary(thread_for_summary)
 
-        # pending_id としてDB上のmessage_idを使う
         pending_id = str(msg["id"])
+        guest_name = booking.get("guest_name", "") if booking else ""
+        property_name = booking.get("property_name", "") if booking else ""
 
         # LINE通知
         try:
@@ -196,6 +198,8 @@ def run_once():
                 guest_message=msg["message"],
                 ai_reply=draft_text,
                 conversation_history=conversation_summary,
+                guest_name=guest_name,
+                property_name=property_name,
             )
             print(f"[{_now()}]   LINE通知送信完了")
         except Exception as e:

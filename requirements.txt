@@ -1,4 +1,9 @@
 requests
 google-genai
 python-dotenv
-flask
+fastapi
+uvicorn[standard]
+apscheduler
+jinja2
+line-bot-sdk
+psycopg2-binary
