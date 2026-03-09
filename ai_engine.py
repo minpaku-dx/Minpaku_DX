@@ -80,7 +80,7 @@ def generate_reply(
 
     client = _get_client()
     response = client.models.generate_content(
-        model="gemini-2.0-flash-lite",
+        model="gemini-2.5-flash",
         contents=prompt,
     )
     return response.text
