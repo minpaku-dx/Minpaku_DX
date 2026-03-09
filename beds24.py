@@ -104,6 +104,10 @@ def get_booking_details(token: str, booking_id: int) -> dict:
         if not data:
             return {}
         b = data[0]
+        import json
+        print(f"[beds24] === FULL BOOKING RESPONSE (id={booking_id}) ===")
+        print(json.dumps(b, indent=2, ensure_ascii=False, default=str))
+        print(f"[beds24] === END FULL BOOKING RESPONSE ===")
         first_name = b.get("guestFirstName", "")
         last_name = b.get("guestLastName", "")
         guest_name = f"{first_name} {last_name}".strip() or b.get("guestName", "不明")
