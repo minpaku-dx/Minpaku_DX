@@ -154,6 +154,7 @@ def handle_postback(event):
 def handle_message(event):
     user_id = event.source.user_id
     text = event.message.text
+    print(f"[LINE] Message from user_id: {user_id}")
 
     if user_id not in editing_state:
         reply_text(event.reply_token, "未読メッセージの返信案は自動で届きます。")
