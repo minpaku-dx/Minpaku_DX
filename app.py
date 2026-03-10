@@ -154,8 +154,6 @@ def handle_postback(event):
 def handle_message(event):
     user_id = event.source.user_id
     text = event.message.text
-    print(f"[LINE] Message from user_id: {user_id}")
-
     if user_id not in editing_state:
         reply_text(event.reply_token, "未読メッセージの返信案は自動で届きます。")
         return
@@ -268,3 +266,33 @@ async def api_skip(body: SkipRequest):
 @app.get("/health")
 async def health():
     return {"status": "ok", "sync_interval": SYNC_INTERVAL}
+
+
+# ===== TEMP: Beds24 API field inspection (削除予定) =====
+@app.get("/debug/booking-fields")
+async def debug_booking_fields():
+    """任意の予約のRAWフィールドを確認する。使用後に削除。"""
+    from beds24 import get_access_token, get_booking_details
+    token = get_access_token()
+    if not token:
+        return {"error": "Beds24 token failed"}
+    # 最近のメッセージから予約IDを取得
+    bookings = db.get_draft_ready_messages() or []
+    # draft_readyがなければ全メッセージから取得
+    if not bookings:
+        with db._get_conn() as conn:
+            bookings = db._fetchall(conn, "SELECT DISTINCT booking_id FROM messages ORDER BY sent_at DESC LIMIT 3")
+    if not bookings:
+        return {"error": "No bookings found in DB"}
+    booking_id = bookings[0]["booking_id"]
+    # Raw APIコールで全フィールドを取得
+    import requests as req
+    url = f"https://beds24.com/api/v2/bookings"
+    headers = {"accept": "application/json", "token": token}
+    resp = req.get(url, headers=headers, params={"bookingId": booking_id}, timeout=10)
+    if resp.status_code != 200:
+        return {"error": f"API error: {resp.status_code}"}
+    data = resp.json().get("data", [])
+    if not data:
+        return {"error": f"No data for booking {booking_id}"}
+    return {"booking_id": booking_id, "field_count": len(data[0]), "fields": data[0]}
