@@ -17,6 +17,9 @@ logs/
 .vscode/
 .idea/
 
+# Docs (internal reference/archive)
+docs/
+
 # OS
 .DS_Store
 Thumbs.db

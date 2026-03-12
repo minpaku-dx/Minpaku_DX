@@ -51,6 +51,20 @@ def display_booking_header(index, total, booking, msg):
     _badge("ゲスト", booking.get("guest_name", "不明") if booking else "不明", "\033[96m")
     _badge("チェックイン", booking.get("check_in", "不明") if booking else "不明")
     _badge("チェックアウト", booking.get("check_out", "不明") if booking else "不明")
+    if booking:
+        num_adult = booking.get("num_adult", 0)
+        num_child = booking.get("num_child", 0)
+        if num_adult or num_child:
+            people = f"大人{num_adult}名" + (f"、子供{num_child}名" if num_child else "")
+            _badge("人数", people)
+        if booking.get("guest_country"):
+            _badge("国籍", booking["guest_country"])
+        if booking.get("guest_language"):
+            _badge("言語", booking["guest_language"])
+        if booking.get("guest_arrival_time"):
+            _badge("到着予定", booking["guest_arrival_time"])
+        if booking.get("guest_comments"):
+            _badge("備考", booking["guest_comments"])
     _badge("受信時刻", msg.get("sent_at", "")[:16].replace("T", " "))
 
 
