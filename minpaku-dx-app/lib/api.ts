@@ -98,9 +98,27 @@ export type MessageDetail = {
 };
 
 export type Property = {
-  id: number;
-  name: string;
-  pendingCount: number;
+  property_id: number;
+  property_name?: string;
+  permission?: string;
+  pending_count?: number;
+};
+
+export type UserSettings = {
+  supabase_user_id: string;
+  notify_new_message: boolean;
+  notify_proactive: boolean;
+  notify_reminder: boolean;
+  line_fallback: boolean;
+  ai_tone: string;
+  ai_signature: string;
+  theme: string;
+};
+
+export type OnboardingResult = {
+  ok: boolean;
+  properties: { property_id: number; property_name: string }[];
+  message: string;
 };
 
 export const api = {
@@ -122,7 +140,7 @@ export const api = {
 
   // User
   getMe: () =>
-    request<{ user: { id: string; email: string }; properties: Property[] }>('/api/me'),
+    request<{ user: { id: string; email: string }; properties: Property[]; settings: UserSettings }>('/api/me'),
 
   // Devices
   registerDevice: (fcmToken: string, platform: string) =>
@@ -142,4 +160,18 @@ export const api = {
   // Mark as read
   markAsRead: (messageId: string | number) =>
     request<{ ok: boolean }>(`/api/messages/${messageId}/read`, { method: 'POST' }),
+
+  // Settings
+  getSettings: () =>
+    request<{ settings: UserSettings }>('/api/settings'),
+
+  updateSettings: (data: Partial<Omit<UserSettings, 'supabase_user_id'>>) =>
+    request<{ settings: UserSettings }>('/api/settings', { method: 'PUT', body: data }),
+
+  // Onboarding
+  submitOnboarding: (beds24RefreshToken: string) =>
+    request<OnboardingResult>('/api/onboarding', {
+      method: 'POST',
+      body: { beds24_refresh_token: beds24RefreshToken },
+    }),
 };

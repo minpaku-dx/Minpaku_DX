@@ -39,6 +39,20 @@ JST = timezone(timedelta(hours=9))
 logger = logging.getLogger("minpaku-dx.sync")
 
 
+def _get_owner_settings(property_id: int | None) -> dict | None:
+    """物件に紐づくオーナーのAI設定を取得する。"""
+    if not property_id:
+        return None
+    ph = db._PH
+    with db._get_conn() as conn:
+        row = db._fetchone(conn,
+            f"SELECT supabase_user_id FROM user_properties WHERE property_id = {ph} LIMIT 1",
+            (property_id,))
+    if not row:
+        return None
+    return db.get_user_settings(row["supabase_user_id"])
+
+
 def sync_messages(token: str) -> list[dict]:
     """
     Beds24から未読ゲストメッセージを取得し、DBに新着のみ保存する。
@@ -138,12 +152,16 @@ def generate_and_save_draft(message: dict, token: str) -> str:
         for m in thread
     ]
 
+    # オーナーのAI設定を取得
+    user_settings = _get_owner_settings(property_id)
+
     # AI返信案を生成
     draft_text = generate_reply(
         guest_message=message["message"],
         property_id=property_id,
         thread=thread_for_ai,
         booking_info=booking_info,
+        user_settings=user_settings,
     )
 
     # DB保存
@@ -197,7 +215,8 @@ def _process_proactive_booking(
 
     # AI生成
     try:
-        draft_text = generate_proactive_message(trigger_type, booking, property_id)
+        user_settings = _get_owner_settings(property_id)
+        draft_text = generate_proactive_message(trigger_type, booking, property_id, user_settings=user_settings)
         pro_id = db.save_proactive_draft(booking_id, property_id, trigger_type, draft_text, AI_MODEL)
         metrics["proactive_generated"] += 1
         logger.info("プロアクティブ生成完了: 予約 %d (%s)", booking_id, trigger_type)

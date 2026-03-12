@@ -508,6 +508,18 @@ class AppSendRequest(BaseModel):
 class AppSkipRequest(BaseModel):
     messageId: str | int | None = None
 
+class SettingsUpdateRequest(BaseModel):
+    notify_new_message: bool | None = None
+    notify_proactive: bool | None = None
+    notify_reminder: bool | None = None
+    line_fallback: bool | None = None
+    ai_tone: str | None = None
+    ai_signature: str | None = None
+    theme: str | None = None
+
+class OnboardingRequest(BaseModel):
+    beds24_refresh_token: str
+
 
 @app.get("/api/me")
 async def api_me(user: dict = Depends(get_current_user)):
@@ -643,7 +655,7 @@ async def api_register_device(body: DeviceRegisterRequest, user: dict = Depends(
 @app.delete("/api/devices/{fcm_token}")
 async def api_unregister_device(fcm_token: str, user: dict = Depends(get_current_user)):
     """Remove a device from push notifications (only own devices)."""
-    db.delete_device(fcm_token, user_id=user["sub"])
+    db.delete_device(fcm_token, user_id=user["id"])
     return {"ok": True}
 
 
@@ -704,6 +716,69 @@ async def api_app_skip(body: AppSkipRequest, user: dict = Depends(get_current_us
     except ValueError:
         raise HTTPException(status_code=400, detail="無効なメッセージIDです")
     return {"ok": True}
+
+
+# ===== Settings API =====
+
+@app.get("/api/settings")
+async def api_get_settings(user: dict = Depends(get_current_user)):
+    """Return user settings."""
+    settings = db.get_user_settings(user["id"])
+    return {"settings": settings}
+
+
+@app.put("/api/settings")
+async def api_update_settings(body: SettingsUpdateRequest, user: dict = Depends(get_current_user)):
+    """Update user settings."""
+    update_data = body.model_dump(exclude_none=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="更新するフィールドがありません")
+    db.upsert_user_settings(user["id"], **update_data)
+    settings = db.get_user_settings(user["id"])
+    return {"settings": settings}
+
+
+# ===== Onboarding API =====
+
+@app.post("/api/onboarding")
+async def api_onboarding(body: OnboardingRequest, user: dict = Depends(get_current_user)):
+    """Accept Beds24 refresh token, validate it, detect properties, and associate user."""
+    import requests as req
+
+    # Validate the refresh token by attempting to get an access token
+    url = f"https://beds24.com/api/v2/authentication/token"
+    headers = {"accept": "application/json", "refreshToken": body.beds24_refresh_token}
+    try:
+        response = req.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            raise HTTPException(status_code=400, detail="Beds24トークンの検証に失敗しました。正しいリフレッシュトークンを入力してください。")
+        token = response.json().get("token")
+        if not token:
+            raise HTTPException(status_code=400, detail="Beds24からアクセストークンを取得できませんでした。")
+    except req.RequestException:
+        raise HTTPException(status_code=502, detail="Beds24への接続に失敗しました。しばらくしてからお試しください。")
+
+    # Detect properties from existing bookings in DB
+    ph = db._PH
+    with db._get_conn() as conn:
+        property_rows = db._fetchall(conn,
+            "SELECT DISTINCT property_id, property_name FROM bookings WHERE property_id IS NOT NULL")
+
+    # Associate user with detected properties
+    detected = []
+    for row in property_rows:
+        pid = row["property_id"]
+        db.add_user_property(user["id"], pid)
+        detected.append({
+            "property_id": pid,
+            "property_name": row.get("property_name", ""),
+        })
+
+    return {
+        "ok": True,
+        "properties": detected,
+        "message": f"{len(detected)}件の物件を検出しました。" if detected else "物件が見つかりませんでした。予約データが同期されると自動的に検出されます。",
+    }
 
 
 # ===== Health Check =====

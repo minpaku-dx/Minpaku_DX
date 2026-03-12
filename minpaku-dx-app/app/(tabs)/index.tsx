@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { useState, useMemo, useEffect } from 'react';
+import { FlatList, RefreshControl, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useMessages, useSendMessage, useSkipMessage } from '@/hooks/useMessages';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -7,20 +7,36 @@ import { useTheme } from '@/hooks/useTheme';
 import { SwipeableCard } from '@/components/SwipeableCard';
 import { SkeletonList } from '@/components/SkeletonCard';
 import { EmptyState } from '@/components/EmptyState';
-import { colors, spacing } from '@/lib/theme';
+import { colors, spacing, borderRadius, fontSize, fontWeight } from '@/lib/theme';
 import type { MessageCard as MessageCardType } from '@/lib/api';
 
+type FilterTab = 'all' | 'reply' | 'proactive';
+
+const FILTER_TABS: { key: FilterTab; label: string }[] = [
+  { key: 'all', label: 'すべて' },
+  { key: 'reply', label: '返信' },
+  { key: 'proactive', label: 'プロアクティブ' },
+];
+
 export default function InboxScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const router = useRouter();
   const { data: messages, isLoading, refetch, isRefetching } = useMessages();
   const sendMutation = useSendMessage();
   const skipMutation = useSkipMessage();
   const { requestPermission } = useNotifications();
 
+  const [filter, setFilter] = useState<FilterTab>('all');
+
   useEffect(() => {
     requestPermission();
   }, []);
+
+  const filteredMessages = useMemo(() => {
+    if (!messages) return [];
+    if (filter === 'all') return messages;
+    return messages.filter((m) => m.type === filter);
+  }, [messages, filter]);
 
   const handlePress = (msg: MessageCardType) => {
     router.push(`/messages/${msg.id}`);
@@ -40,11 +56,40 @@ export default function InboxScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      {/* Filter Tabs */}
+      <View style={[styles.filterRow, { backgroundColor: theme.card, borderBottomColor: theme.divider }]}>
+        {FILTER_TABS.map((tab) => {
+          const active = filter === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[
+                styles.filterTab,
+                active && { backgroundColor: colors.primary[500] },
+                !active && {
+                  backgroundColor: isDark ? colors.dark.elevated : colors.gray[100],
+                },
+              ]}
+              onPress={() => setFilter(tab.key)}
+            >
+              <Text
+                style={[
+                  styles.filterTabText,
+                  { color: active ? colors.white : theme.textSecondary },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {isLoading ? (
         <SkeletonList />
       ) : (
         <FlatList
-          data={messages ?? []}
+          data={filteredMessages}
           keyExtractor={(item) => String(item.id)}
           renderItem={({ item }) => (
             <SwipeableCard
@@ -63,7 +108,7 @@ export default function InboxScreen() {
             />
           }
           contentContainerStyle={
-            !messages?.length ? styles.emptyContainer : styles.list
+            !filteredMessages.length ? styles.emptyContainer : styles.list
           }
           ListEmptyComponent={
             <EmptyState
@@ -81,6 +126,23 @@ export default function InboxScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    borderBottomWidth: 1,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  filterTabText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
   },
   list: {
     paddingTop: spacing.md,
