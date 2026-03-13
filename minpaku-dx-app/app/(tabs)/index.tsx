@@ -7,15 +7,16 @@ import { useTheme } from '@/hooks/useTheme';
 import { SwipeableCard } from '@/components/SwipeableCard';
 import { SkeletonList } from '@/components/SkeletonCard';
 import { EmptyState } from '@/components/EmptyState';
-import { colors, spacing, borderRadius, fontSize, fontWeight } from '@/lib/theme';
+import { InboxClearIllustration } from '@/components/illustrations/InboxClear';
+import { colors, spacing, borderRadius, fontSize, fontWeight, fontFamily, shadow } from '@/lib/theme';
 import type { MessageCard as MessageCardType } from '@/lib/api';
 
 type FilterTab = 'all' | 'reply' | 'proactive';
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
-  { key: 'all', label: 'すべて' },
-  { key: 'reply', label: '返信' },
-  { key: 'proactive', label: 'プロアクティブ' },
+  { key: 'all', label: '\u3059\u3079\u3066' },
+  { key: 'reply', label: '\u8FD4\u4FE1' },
+  { key: 'proactive', label: '\u5148\u56DE\u308A' },
 ];
 
 export default function InboxScreen() {
@@ -38,6 +39,15 @@ export default function InboxScreen() {
     return messages.filter((m) => m.type === filter);
   }, [messages, filter]);
 
+  const counts = useMemo(() => {
+    if (!messages) return { all: 0, reply: 0, proactive: 0 };
+    return {
+      all: messages.length,
+      reply: messages.filter((m) => m.type === 'reply').length,
+      proactive: messages.filter((m) => m.type === 'proactive').length,
+    };
+  }, [messages]);
+
   const handlePress = (msg: MessageCardType) => {
     router.push(`/messages/${msg.id}`);
   };
@@ -56,30 +66,44 @@ export default function InboxScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      {/* Filter Tabs */}
-      <View style={[styles.filterRow, { backgroundColor: theme.card, borderBottomColor: theme.divider }]}>
+      {/* Filter bar */}
+      <View style={[styles.filterBar, { backgroundColor: theme.card, borderBottomColor: theme.divider }]}>
         {FILTER_TABS.map((tab) => {
           const active = filter === tab.key;
+          const count = counts[tab.key];
           return (
             <TouchableOpacity
               key={tab.key}
               style={[
-                styles.filterTab,
-                active && { backgroundColor: colors.primary[500] },
-                !active && {
-                  backgroundColor: isDark ? colors.dark.elevated : colors.gray[100],
-                },
+                styles.filterChip,
+                active
+                  ? { backgroundColor: isDark ? colors.primary[700] : colors.primary[600] }
+                  : { backgroundColor: isDark ? colors.dark.elevated : colors.gray[100] },
               ]}
               onPress={() => setFilter(tab.key)}
+              activeOpacity={0.7}
             >
               <Text
                 style={[
-                  styles.filterTabText,
-                  { color: active ? colors.white : theme.textSecondary },
+                  styles.filterText,
+                  { color: active ? colors.white : theme.textSecondary, fontFamily },
                 ]}
               >
                 {tab.label}
               </Text>
+              {count > 0 && (
+                <View style={[
+                  styles.filterCount,
+                  { backgroundColor: active ? 'rgba(255,255,255,0.25)' : theme.divider },
+                ]}>
+                  <Text style={[
+                    styles.filterCountText,
+                    { color: active ? colors.white : theme.textTertiary, fontFamily },
+                  ]}>
+                    {count}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -112,9 +136,9 @@ export default function InboxScreen() {
           }
           ListEmptyComponent={
             <EmptyState
-              icon="📭"
-              title="未処理メッセージはありません"
-              subtitle="新しいゲストメッセージが届くとここに表示されます"
+              illustration={<InboxClearIllustration />}
+              title={'\u672A\u51E6\u7406\u30E1\u30C3\u30BB\u30FC\u30B8\u306F\u3042\u308A\u307E\u305B\u3093'}
+              subtitle={'\u65B0\u3057\u3044\u30B2\u30B9\u30C8\u30E1\u30C3\u30BB\u30FC\u30B8\u304C\u5C4A\u304F\u3068\u3053\u3053\u306B\u8868\u793A\u3055\u308C\u307E\u3059'}
             />
           }
         />
@@ -127,26 +151,40 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  filterRow: {
+  filterBar: {
     flexDirection: 'row',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     gap: spacing.sm,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  filterTab: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
+  filterChip: {
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.full,
+    gap: spacing.xs,
   },
-  filterTabText: {
+  filterText: {
     fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.medium,
+    fontWeight: fontWeight.semibold,
+  },
+  filterCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  filterCountText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
   },
   list: {
     paddingTop: spacing.md,
-    paddingBottom: spacing['3xl'],
+    paddingBottom: spacing['4xl'],
   },
   emptyContainer: {
     flex: 1,

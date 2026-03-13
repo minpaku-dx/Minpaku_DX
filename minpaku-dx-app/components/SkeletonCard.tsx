@@ -7,37 +7,36 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
-import { spacing, borderRadius } from '@/lib/theme';
+import { spacing, borderRadius, shadow } from '@/lib/theme';
 
 function SkeletonCard() {
   const { theme } = useTheme();
-  const opacity = useSharedValue(0.4);
+  const opacity = useSharedValue(0.3);
 
   useEffect(() => {
-    opacity.value = withRepeat(withTiming(1.0, { duration: 800 }), -1, true);
+    opacity.value = withRepeat(withTiming(0.6, { duration: 1000 }), -1, true);
   }, []);
 
   const pulse = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.card }]}>
+    <View style={[styles.card, shadow.sm, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <Animated.View style={pulse}>
-        {/* Header row */}
-        <View style={styles.headerRow}>
-          <View style={[styles.bar, styles.barShort, { backgroundColor: theme.border }]} />
-          <View style={[styles.bar, styles.barTiny, { backgroundColor: theme.border }]} />
+        {/* Top row: avatar + name + time */}
+        <View style={styles.topRow}>
+          <View style={[styles.avatar, { backgroundColor: theme.border }]} />
+          <View style={styles.nameBlock}>
+            <View style={[styles.bar, styles.barName, { backgroundColor: theme.border }]} />
+            <View style={[styles.bar, styles.barProperty, { backgroundColor: theme.border }]} />
+          </View>
+          <View style={[styles.bar, styles.barTime, { backgroundColor: theme.border }]} />
         </View>
-        {/* Guest name */}
-        <View style={[styles.bar, styles.barMedium, { backgroundColor: theme.border }]} />
-        {/* Badge row */}
-        <View style={styles.badgeRow}>
-          <View style={[styles.badge, { backgroundColor: theme.border }]} />
-          <View style={[styles.badge, styles.badgeWide, { backgroundColor: theme.border }]} />
-        </View>
-        {/* Preview lines */}
+        {/* Badge */}
+        <View style={[styles.badge, { backgroundColor: theme.border }]} />
+        {/* Text */}
         <View style={[styles.bar, styles.barFull, { backgroundColor: theme.border }]} />
-        <View style={[styles.bar, styles.barLong, { backgroundColor: theme.border }]} />
-        {/* Draft preview */}
+        <View style={[styles.bar, styles.barMedium, { backgroundColor: theme.border }]} />
+        {/* Draft box */}
         <View style={[styles.draftBox, { backgroundColor: theme.bg }]} />
       </Animated.View>
     </View>
@@ -60,39 +59,41 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: borderRadius.lg,
-    borderLeftWidth: 3,
-    borderLeftColor: 'transparent',
-    padding: spacing.lg,
     marginHorizontal: spacing.lg,
     marginBottom: spacing.md,
+    padding: spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: spacing.md,
   },
-  headerRow: {
+  topRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+  },
+  nameBlock: {
+    flex: 1,
+    gap: spacing.xs,
   },
   bar: {
-    height: 12,
-    borderRadius: 6,
+    borderRadius: 4,
   },
-  barTiny: { width: 40 },
-  barShort: { width: 100 },
-  barMedium: { width: 140, height: 16, borderRadius: 8, marginBottom: spacing.sm },
-  barFull: { width: '100%', marginBottom: spacing.xs },
-  barLong: { width: '75%', marginBottom: spacing.sm },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
+  barName: { width: 100, height: 14 },
+  barProperty: { width: 70, height: 10 },
+  barTime: { width: 36, height: 10 },
+  barFull: { width: '100%', height: 12 },
+  barMedium: { width: '60%', height: 12 },
   badge: {
-    width: 60,
+    width: 56,
     height: 20,
-    borderRadius: 10,
+    borderRadius: borderRadius.xs,
   },
-  badgeWide: { width: 120 },
   draftBox: {
-    height: 32,
-    borderRadius: borderRadius.sm,
+    height: 52,
+    borderRadius: borderRadius.md,
   },
 });

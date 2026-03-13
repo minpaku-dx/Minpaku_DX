@@ -10,9 +10,10 @@ import Animated, {
   interpolate,
   Extrapolation,
 } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { MessageCard } from '@/components/MessageCard';
-import { colors, spacing, borderRadius } from '@/lib/theme';
+import { colors, spacing, borderRadius, fontSize, fontWeight, fontFamily } from '@/lib/theme';
 import type { MessageCard as MessageCardType } from '@/lib/api';
 
 type Props = {
@@ -23,7 +24,7 @@ type Props = {
   disabled?: boolean;
 };
 
-const SWIPE_THRESHOLD = 0.4; // 40% of screen width
+const SWIPE_THRESHOLD = 0.35;
 
 export function SwipeableCard({ message, onPress, onSend, onSkip, disabled }: Props) {
   const { width } = useWindowDimensions();
@@ -37,7 +38,6 @@ export function SwipeableCard({ message, onPress, onSend, onSkip, disabled }: Pr
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onSend();
   };
-
   const fireSkip = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     onSkip();
@@ -47,27 +47,20 @@ export function SwipeableCard({ message, onPress, onSend, onSkip, disabled }: Pr
     .activeOffsetX([-15, 15])
     .failOffsetY([-10, 10])
     .enabled(!disabled)
-    .onStart(() => {
-      isSwiping.current = true;
-    })
-    .onUpdate((e) => {
-      translateX.value = e.translationX;
-    })
+    .onStart(() => { isSwiping.current = true; })
+    .onUpdate((e) => { translateX.value = e.translationX; })
     .onEnd((e) => {
       if (e.translationX > threshold) {
-        // Approve — slide off right
         translateX.value = withTiming(width, { duration: 200 }, () => {
           cardHeight.value = withTiming(0, { duration: 200 });
           runOnJS(fireApprove)();
         });
       } else if (e.translationX < -threshold) {
-        // Skip — slide off left
         translateX.value = withTiming(-width, { duration: 200 }, () => {
           cardHeight.value = withTiming(0, { duration: 200 });
           runOnJS(fireSkip)();
         });
       } else {
-        // Spring back
         translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
       }
       isSwiping.current = false;
@@ -79,39 +72,29 @@ export function SwipeableCard({ message, onPress, onSend, onSkip, disabled }: Pr
     overflow: 'hidden' as const,
   }));
 
-  // Right swipe background (approve — green)
   const approveStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      translateX.value,
-      [0, threshold],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(translateX.value, [0, threshold], [0, 1], Extrapolation.CLAMP),
   }));
 
-  // Left swipe background (skip — gray)
   const skipStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      translateX.value,
-      [-threshold, 0],
-      [1, 0],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(translateX.value, [-threshold, 0], [1, 0], Extrapolation.CLAMP),
   }));
 
   return (
     <View>
-      {/* Background layers */}
       <Animated.View style={[styles.bgLayer, styles.approveBg, approveStyle]}>
-        <Text style={styles.bgIcon}>✓</Text>
-        <Text style={styles.bgLabel}>送信</Text>
+        <View style={styles.bgContent}>
+          <Ionicons name="checkmark-circle" size={24} color={colors.white} />
+          <Text style={styles.bgLabel}>{'\u9001\u4FE1'}</Text>
+        </View>
       </Animated.View>
       <Animated.View style={[styles.bgLayer, styles.skipBg, skipStyle]}>
-        <Text style={styles.bgLabel}>スキップ</Text>
-        <Text style={styles.bgIcon}>→</Text>
+        <View style={[styles.bgContent, { justifyContent: 'flex-end' }]}>
+          <Text style={styles.bgLabel}>{'\u30B9\u30AD\u30C3\u30D7'}</Text>
+          <Ionicons name="arrow-forward-circle" size={24} color={colors.white} />
+        </View>
       </Animated.View>
 
-      {/* Swipeable card */}
       <GestureDetector gesture={pan}>
         <Animated.View style={cardStyle}>
           <MessageCard message={message} onPress={onPress} />
@@ -125,31 +108,28 @@ const styles = StyleSheet.create({
   bgLayer: {
     position: 'absolute',
     top: 0,
-    bottom: 0,
+    bottom: spacing.md,
     left: spacing.lg,
     right: spacing.lg,
     borderRadius: borderRadius.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
+    justifyContent: 'center',
   },
   approveBg: {
     backgroundColor: colors.success[500],
-    justifyContent: 'flex-start',
   },
   skipBg: {
-    backgroundColor: colors.skip[400],
-    justifyContent: 'flex-end',
+    backgroundColor: colors.gray[400],
   },
-  bgIcon: {
-    color: colors.white,
-    fontSize: 24,
-    fontWeight: '700',
+  bgContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing['2xl'],
+    gap: spacing.sm,
   },
   bgLabel: {
     color: colors.white,
-    fontSize: 16,
-    fontWeight: '600',
-    marginHorizontal: spacing.sm,
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.semibold,
+    fontFamily,
   },
 });

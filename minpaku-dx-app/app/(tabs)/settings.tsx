@@ -1,26 +1,77 @@
 import { View, Text, TouchableOpacity, Alert, StyleSheet, ScrollView, Switch, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
 import { useAppStore } from '@/lib/store';
-import { colors, spacing, borderRadius, fontSize, fontWeight } from '@/lib/theme';
+import { colors, spacing, borderRadius, fontSize, fontWeight, fontFamily, shadow } from '@/lib/theme';
 
 type ThemeOption = 'system' | 'light' | 'dark';
 type ToneOption = 'friendly' | 'formal' | 'casual';
 
-const themeOptions: { label: string; value: ThemeOption }[] = [
-  { label: 'システム', value: 'system' },
-  { label: 'ライト', value: 'light' },
-  { label: 'ダーク', value: 'dark' },
+const themeOptions: { label: string; value: ThemeOption; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { label: '\u81EA\u52D5', value: 'system', icon: 'phone-portrait-outline' },
+  { label: '\u30E9\u30A4\u30C8', value: 'light', icon: 'sunny-outline' },
+  { label: '\u30C0\u30FC\u30AF', value: 'dark', icon: 'moon-outline' },
 ];
 
 const toneOptions: { label: string; value: ToneOption }[] = [
-  { label: 'フレンドリー', value: 'friendly' },
-  { label: 'フォーマル', value: 'formal' },
-  { label: 'カジュアル', value: 'casual' },
+  { label: '\u30D5\u30EC\u30F3\u30C9\u30EA\u30FC', value: 'friendly' },
+  { label: '\u30D5\u30A9\u30FC\u30DE\u30EB', value: 'formal' },
+  { label: '\u30AB\u30B8\u30E5\u30A2\u30EB', value: 'casual' },
 ];
+
+function SectionHeader({ title }: { title: string }) {
+  const { theme } = useTheme();
+  return <Text style={[styles.sectionTitle, { color: theme.textTertiary, fontFamily }]}>{title}</Text>;
+}
+
+function Divider() {
+  const { theme } = useTheme();
+  return <View style={[styles.divider, { backgroundColor: theme.divider }]} />;
+}
+
+function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { label: string; value: T }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const { theme, isDark } = useTheme();
+  return (
+    <View style={[styles.segmented, { backgroundColor: isDark ? colors.dark.elevated : colors.gray[100] }]}>
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <TouchableOpacity
+            key={opt.value}
+            style={[
+              styles.segmentItem,
+              active && [styles.segmentItemActive, { backgroundColor: theme.card }, shadow.sm],
+            ]}
+            onPress={() => onChange(opt.value)}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                { color: active ? theme.text : theme.textTertiary, fontFamily },
+                active && { fontWeight: fontWeight.semibold },
+              ]}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 export default function SettingsScreen() {
   const { theme, isDark } = useTheme();
@@ -37,156 +88,95 @@ export default function SettingsScreen() {
     updateSettings.mutate({ [key]: value });
   };
 
-  const handleToneChange = (tone: ToneOption) => {
-    updateSettings.mutate({ ai_tone: tone });
-  };
-
-  const handleSignatureChange = (text: string) => {
-    updateSettings.mutate({ ai_signature: text });
-  };
-
-  const handleLogout = () => {
-    Alert.alert('ログアウト', '本当にログアウトしますか？', [
-      { text: 'キャンセル', style: 'cancel' },
-      {
-        text: 'ログアウト',
-        style: 'destructive',
-        onPress: async () => {
-          await unregister();
-          signOut();
-        },
-      },
-    ]);
-  };
+  const cardStyle = [styles.card, shadow.sm, { backgroundColor: theme.card, borderColor: isDark ? theme.cardBorder : colors.gray[200] }];
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.bg }]}
-      contentContainerStyle={styles.content}
-    >
+    <ScrollView style={[styles.container, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
       {/* Account */}
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        アカウント
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
-        <Text style={[styles.label, { color: theme.textSecondary }]}>メール</Text>
-        <Text style={[styles.value, { color: theme.text }]}>
-          {user?.email ?? '—'}
-        </Text>
+      <SectionHeader title={'\u30A2\u30AB\u30A6\u30F3\u30C8'} />
+      <View style={cardStyle}>
+        <View style={styles.row}>
+          <View style={styles.rowIcon}>
+            <Ionicons name="person-outline" size={18} color={theme.textSecondary} />
+          </View>
+          <Text style={[styles.rowLabel, { color: theme.text, fontFamily }]}>{'\u30E1\u30FC\u30EB'}</Text>
+          <Text style={[styles.rowValue, { color: theme.textSecondary, fontFamily }]} numberOfLines={1}>
+            {user?.email ?? '\u2014'}
+          </Text>
+        </View>
       </View>
 
       {/* Notifications */}
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        通知設定
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
-        <View style={styles.switchRow}>
-          <Text style={[styles.switchLabel, { color: theme.text }]}>新着メッセージ</Text>
-          <Switch
-            value={settings?.notify_new_message ?? true}
-            onValueChange={(v) => handleToggle('notify_new_message', v)}
-            trackColor={{ true: colors.primary[500], false: colors.gray[300] }}
-          />
-        </View>
-        <View style={[styles.divider, { backgroundColor: theme.divider }]} />
-        <View style={styles.switchRow}>
-          <Text style={[styles.switchLabel, { color: theme.text }]}>プロアクティブ</Text>
-          <Switch
-            value={settings?.notify_proactive ?? true}
-            onValueChange={(v) => handleToggle('notify_proactive', v)}
-            trackColor={{ true: colors.primary[500], false: colors.gray[300] }}
-          />
-        </View>
-        <View style={[styles.divider, { backgroundColor: theme.divider }]} />
-        <View style={styles.switchRow}>
-          <Text style={[styles.switchLabel, { color: theme.text }]}>リマインダー</Text>
-          <Switch
-            value={settings?.notify_reminder ?? true}
-            onValueChange={(v) => handleToggle('notify_reminder', v)}
-            trackColor={{ true: colors.primary[500], false: colors.gray[300] }}
-          />
-        </View>
+      <SectionHeader title={'\u901A\u77E5'} />
+      <View style={cardStyle}>
+        {[
+          { key: 'notify_new_message', label: '\u65B0\u7740\u30E1\u30C3\u30BB\u30FC\u30B8', icon: 'mail-outline' as const },
+          { key: 'notify_proactive', label: '\u5148\u56DE\u308A\u30E1\u30C3\u30BB\u30FC\u30B8', icon: 'flash-outline' as const },
+          { key: 'notify_reminder', label: '\u30EA\u30DE\u30A4\u30F3\u30C0\u30FC', icon: 'alarm-outline' as const },
+        ].map((item, i) => (
+          <View key={item.key}>
+            {i > 0 && <Divider />}
+            <View style={styles.switchRow}>
+              <Ionicons name={item.icon} size={18} color={theme.textSecondary} style={styles.switchIcon} />
+              <Text style={[styles.switchLabel, { color: theme.text, fontFamily }]}>{item.label}</Text>
+              <Switch
+                value={(settings as any)?.[item.key] ?? true}
+                onValueChange={(v) => handleToggle(item.key, v)}
+                trackColor={{ true: colors.primary[500], false: colors.gray[300] }}
+              />
+            </View>
+          </View>
+        ))}
       </View>
 
-      {/* Beds24 Connection */}
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        Beds24接続
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
-        <View style={styles.aboutRow}>
-          <Text style={[styles.switchLabel, { color: theme.text }]}>接続ステータス</Text>
-          <Text style={[styles.value, { color: colors.success[500] }]}>接続済み</Text>
+      {/* Beds24 */}
+      <SectionHeader title={'Beds24'} />
+      <View style={cardStyle}>
+        <View style={styles.row}>
+          <View style={styles.rowIcon}>
+            <Ionicons name="link-outline" size={18} color={theme.textSecondary} />
+          </View>
+          <Text style={[styles.rowLabel, { color: theme.text, fontFamily }]}>{'\u30B9\u30C6\u30FC\u30BF\u30B9'}</Text>
+          <View style={styles.statusDot}>
+            <View style={[styles.dot, { backgroundColor: colors.success[500] }]} />
+            <Text style={[styles.statusText, { color: colors.success[500], fontFamily }]}>{'\u63A5\u7D9A\u6E08\u307F'}</Text>
+          </View>
         </View>
-        <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+        <Divider />
         <TouchableOpacity
           style={styles.linkRow}
           onPress={() => router.push('/(onboarding)/beds24-token')}
+          activeOpacity={0.6}
         >
-          <Text style={[styles.linkText, { color: colors.primary[500] }]}>
-            再接続する
-          </Text>
+          <Ionicons name="refresh-outline" size={18} color={theme.tabActive} style={styles.switchIcon} />
+          <Text style={[styles.linkText, { color: theme.tabActive, fontFamily }]}>{'\u518D\u63A5\u7D9A\u3059\u308B'}</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.textTertiary} />
         </TouchableOpacity>
       </View>
 
-      {/* AI Settings */}
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        AI設定
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
-        <Text style={[styles.label, { color: theme.textSecondary }]}>トーン</Text>
-        <View style={styles.toneRow}>
-          {toneOptions.map((opt) => {
-            const active = (settings?.ai_tone ?? 'friendly') === opt.value;
-            return (
-              <TouchableOpacity
-                key={opt.value}
-                style={[
-                  styles.toneBtn,
-                  {
-                    backgroundColor: active
-                      ? colors.primary[500]
-                      : isDark
-                        ? colors.dark.elevated
-                        : colors.gray[100],
-                  },
-                ]}
-                onPress={() => handleToneChange(opt.value)}
-              >
-                <Text
-                  style={[
-                    styles.toneBtnText,
-                    { color: active ? colors.white : theme.text },
-                  ]}
-                >
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-        <View style={[styles.divider, { backgroundColor: theme.divider, marginTop: spacing.md }]} />
-        <Text style={[styles.label, { color: theme.textSecondary, marginTop: spacing.md }]}>署名</Text>
+      {/* AI */}
+      <SectionHeader title={'AI\u8A2D\u5B9A'} />
+      <View style={cardStyle}>
+        <Text style={[styles.fieldLabel, { color: theme.textSecondary, fontFamily }]}>{'\u30C8\u30FC\u30F3'}</Text>
+        <SegmentedControl
+          options={toneOptions}
+          value={(settings?.ai_tone as ToneOption) ?? 'friendly'}
+          onChange={(v) => updateSettings.mutate({ ai_tone: v })}
+        />
+        <Divider />
+        <Text style={[styles.fieldLabel, { color: theme.textSecondary, fontFamily }]}>{'\u7F72\u540D'}</Text>
         <TextInput
-          style={[
-            styles.textInput,
-            {
-              color: theme.text,
-              backgroundColor: isDark ? colors.dark.elevated : colors.gray[100],
-              borderColor: theme.border,
-            },
-          ]}
-          value={settings?.ai_signature ?? '民泊スタッフ一同'}
-          onEndEditing={(e) => handleSignatureChange(e.nativeEvent.text)}
-          placeholder="署名を入力"
+          style={[styles.textInput, { color: theme.text, backgroundColor: theme.inputBg, borderColor: theme.border, fontFamily }]}
+          value={settings?.ai_signature ?? '\u6C11\u6CCA\u30B9\u30BF\u30C3\u30D5\u4E00\u540C'}
+          onEndEditing={(e) => updateSettings.mutate({ ai_signature: e.nativeEvent.text })}
+          placeholder={'\u7F72\u540D\u3092\u5165\u529B'}
           placeholderTextColor={theme.textTertiary}
         />
       </View>
 
       {/* Theme */}
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        テーマ
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
+      <SectionHeader title={'\u30C6\u30FC\u30DE'} />
+      <View style={cardStyle}>
         <View style={styles.themeRow}>
           {themeOptions.map((opt) => {
             const active = themeMode === opt.value;
@@ -197,20 +187,24 @@ export default function SettingsScreen() {
                   styles.themeBtn,
                   {
                     backgroundColor: active
-                      ? colors.primary[500]
-                      : isDark
-                        ? colors.dark.elevated
-                        : colors.gray[100],
+                      ? isDark ? colors.primary[700] : colors.primary[50]
+                      : isDark ? colors.dark.elevated : colors.gray[50],
+                    borderColor: active ? colors.primary[500] : 'transparent',
                   },
                 ]}
                 onPress={() => setThemeMode(opt.value)}
+                activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    styles.themeBtnText,
-                    { color: active ? colors.white : theme.text },
-                  ]}
-                >
+                <Ionicons
+                  name={opt.icon}
+                  size={20}
+                  color={active ? colors.primary[500] : theme.textTertiary}
+                />
+                <Text style={[
+                  styles.themeBtnText,
+                  { color: active ? colors.primary[600] : theme.textSecondary, fontFamily },
+                  active && { fontWeight: fontWeight.semibold },
+                ]}>
                   {opt.label}
                 </Text>
               </TouchableOpacity>
@@ -220,121 +214,122 @@ export default function SettingsScreen() {
       </View>
 
       {/* About */}
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        アプリ情報
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
-        <View style={styles.aboutRow}>
-          <Text style={[styles.label, { color: theme.textSecondary }]}>バージョン</Text>
-          <Text style={[styles.value, { color: theme.text }]}>1.0.0</Text>
+      <SectionHeader title={'\u30A2\u30D7\u30EA\u60C5\u5831'} />
+      <View style={cardStyle}>
+        <View style={styles.row}>
+          <View style={styles.rowIcon}>
+            <Ionicons name="information-circle-outline" size={18} color={theme.textSecondary} />
+          </View>
+          <Text style={[styles.rowLabel, { color: theme.text, fontFamily }]}>{'\u30D0\u30FC\u30B8\u30E7\u30F3'}</Text>
+          <Text style={[styles.rowValue, { color: theme.textSecondary, fontFamily }]}>1.1.0</Text>
         </View>
       </View>
 
       {/* Logout */}
       <TouchableOpacity
-        style={[styles.logoutBtn, { backgroundColor: colors.danger[50] }]}
-        onPress={handleLogout}
+        style={[styles.logoutBtn, { borderColor: colors.danger[500] }]}
+        onPress={() => {
+          Alert.alert('\u30ED\u30B0\u30A2\u30A6\u30C8', '\u672C\u5F53\u306B\u30ED\u30B0\u30A2\u30A6\u30C8\u3057\u307E\u3059\u304B\uFF1F', [
+            { text: '\u30AD\u30E3\u30F3\u30BB\u30EB', style: 'cancel' },
+            { text: '\u30ED\u30B0\u30A2\u30A6\u30C8', style: 'destructive', onPress: async () => { await unregister(); signOut(); } },
+          ]);
+        }}
+        activeOpacity={0.6}
       >
-        <Text style={styles.logoutText}>ログアウト</Text>
+        <Ionicons name="log-out-outline" size={18} color={colors.danger[500]} />
+        <Text style={[styles.logoutText, { fontFamily }]}>{'\u30ED\u30B0\u30A2\u30A6\u30C8'}</Text>
       </TouchableOpacity>
+
+      <View style={{ height: spacing['3xl'] }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: spacing.lg,
-    paddingBottom: spacing['3xl'],
-  },
+  container: { flex: 1 },
+  content: { padding: spacing.lg },
   sectionTitle: {
-    fontSize: fontSize.bodySm,
+    fontSize: fontSize.captionMd,
     fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
-    marginTop: spacing.xl,
+    letterSpacing: 0.8,
+    marginTop: spacing['2xl'],
     marginBottom: spacing.sm,
     marginLeft: spacing.xs,
   },
   card: {
     borderRadius: borderRadius.lg,
     padding: spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  label: {
-    fontSize: fontSize.bodySm,
-    marginBottom: spacing.xs,
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  value: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
+  rowIcon: { width: 28 },
+  rowLabel: { flex: 1, fontSize: fontSize.bodyMd },
+  rowValue: { fontSize: fontSize.bodyMd },
   switchRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: spacing.xs,
   },
-  switchLabel: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
-  divider: {
-    height: 1,
-    marginVertical: spacing.sm,
-  },
+  switchIcon: { width: 28 },
+  switchLabel: { flex: 1, fontSize: fontSize.bodyMd },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: spacing.md },
   linkRow: {
-    paddingVertical: spacing.sm,
-  },
-  linkText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
-  toneRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
   },
-  toneBtn: {
+  linkText: { flex: 1, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium },
+  fieldLabel: {
+    fontSize: fontSize.captionMd,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.sm,
+  },
+  statusDot: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  dot: { width: 7, height: 7, borderRadius: 4 },
+  statusText: { fontSize: fontSize.bodySm, fontWeight: fontWeight.medium },
+  segmented: {
+    flexDirection: 'row',
+    borderRadius: borderRadius.sm,
+    padding: 3,
+    gap: 2,
+  },
+  segmentItem: {
     flex: 1,
     paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.xs,
     alignItems: 'center',
   },
-  toneBtnText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
+  segmentItemActive: {},
+  segmentText: { fontSize: fontSize.bodySm, fontWeight: fontWeight.medium },
   textInput: {
     fontSize: fontSize.bodyMd,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.sm,
     padding: spacing.md,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  themeRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
+  themeRow: { flexDirection: 'row', gap: spacing.sm },
   themeBtn: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
     alignItems: 'center',
+    gap: spacing.xs,
+    borderWidth: 1.5,
   },
-  themeBtnText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
-  aboutRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  themeBtnText: { fontSize: fontSize.caption, fontWeight: fontWeight.medium },
   logoutBtn: {
-    marginTop: spacing['2xl'],
+    marginTop: spacing['3xl'],
     borderRadius: borderRadius.md,
     padding: spacing.lg,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
   },
   logoutText: {
     color: colors.danger[500],
