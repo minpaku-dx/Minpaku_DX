@@ -221,7 +221,7 @@ export default function SettingsScreen() {
             <Ionicons name="information-circle-outline" size={18} color={theme.textSecondary} />
           </View>
           <Text style={[styles.rowLabel, { color: theme.text, fontFamily }]}>{'\u30D0\u30FC\u30B8\u30E7\u30F3'}</Text>
-          <Text style={[styles.rowValue, { color: theme.textSecondary, fontFamily }]}>1.1.0</Text>
+          <Text style={[styles.rowValue, { color: theme.textSecondary, fontFamily }]}>1.2.0</Text>
         </View>
       </View>
 
